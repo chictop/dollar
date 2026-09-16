@@ -1,0 +1,603 @@
+<div id="app"><div class="boot">불러오는 중</div></div>
+
+<style>
+  :root {
+    --paper: #EFF1EC; --surface: #FFFFFF;
+    --ink: #16212C; --ink-2: #5A6672; --ink-3: #8C959E;
+    --rule: #CDD2C9; --rule-soft: #E2E5DE;
+    --buy: #1E6F54; --buy-soft: #E4EFE9;
+    --sell: #96670F; --sell-soft: #F6EDDB;
+    --wait: #6F7A85; --wait-soft: #E6E9E5;
+    --warn: #A0392F;
+  }
+  #app {
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+      Pretendard, "Noto Sans KR", "Malgun Gothic", sans-serif;
+    color: var(--ink); background: var(--paper);
+    max-width: 560px; margin: 0 auto; padding: 18px 14px 48px;
+    font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+  #app * { box-sizing: border-box; }
+  .boot { padding: 40px 0; text-align: center; color: var(--ink-3); }
+
+  .masthead { display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 2px solid var(--ink); padding-bottom: 8px; margin-bottom: 18px; }
+  .masthead h1 { font-size: 17px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .masthead span { font-size: 12px; color: var(--ink-3); }
+
+  .verdict { border-radius: 3px; padding: 16px 16px 14px; margin-bottom: 6px; }
+  .verdict.buy  { background: var(--buy-soft);  border-left: 5px solid var(--buy); }
+  .verdict.sell { background: var(--sell-soft); border-left: 5px solid var(--sell); }
+  .verdict.wait { background: var(--wait-soft); border-left: 5px solid var(--wait); }
+  .verdict-kicker { font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+  .verdict-line { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; }
+  .verdict.buy .verdict-line { color: var(--buy); }
+  .verdict.sell .verdict-line { color: var(--sell); }
+  .verdict-note { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+
+  .action-row { display: flex; gap: 8px; margin: 10px 0 22px; }
+  button { font-family: inherit; font-size: 14px; font-weight: 600; border-radius: 3px;
+    padding: 11px 14px; cursor: pointer; border: 1px solid var(--ink);
+    background: var(--surface); color: var(--ink); flex: 1; }
+  button:focus-visible { outline: 2px solid var(--buy); outline-offset: 2px; }
+  button.primary { background: var(--ink); color: var(--paper); }
+  button.ghost { border-color: var(--rule); color: var(--ink-2); }
+  button:disabled { opacity: .35; cursor: default; }
+
+  .quote { background: var(--surface); border: 1px solid var(--rule-soft);
+    border-radius: 3px; padding: 14px; margin-bottom: 18px; }
+  .quote-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .quote-label { font-size: 12px; color: var(--ink-3); }
+  .refresh { flex: none; font-size: 12px; font-weight: 600; padding: 7px 12px;
+    border-color: var(--rule); color: var(--ink-2); }
+  .refresh[data-busy="1"] { color: var(--ink-3); }
+  .quote-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+  .quote-rate { font-size: 38px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
+  .src { font-size: 11.5px; color: var(--ink-3); margin-top: 8px; }
+  .src.err { color: var(--warn); }
+
+  .gauge { margin-top: 16px; }
+  .gauge-track { position: relative; height: 6px; background: var(--rule-soft); border-radius: 3px; }
+  .gauge-zone { position: absolute; left: 0; top: 0; bottom: 0; background: var(--buy-soft); border-radius: 3px 0 0 3px; }
+  .gauge-mark { position: absolute; top: -5px; width: 2px; height: 16px; background: var(--ink); }
+  .gauge-thresh { position: absolute; top: -3px; width: 1px; height: 12px; background: var(--buy); }
+  .gauge-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 7px; }
+  .gauge-read { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+
+  .slots { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-bottom: 8px; }
+  .slot { aspect-ratio: 1; border-radius: 2px; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; border: 1px solid var(--rule); color: var(--ink-3); }
+  .slot.filled { background: var(--buy); border-color: var(--buy); color: #fff; }
+  .slot.ready { background: var(--sell); border-color: var(--sell); color: #fff; }
+  .slot.next { border-color: var(--ink); border-style: dashed; color: var(--ink); }
+
+  h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 26px 0 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: right; font-weight: 500; color: var(--ink-3); font-size: 11px;
+    padding: 0 0 6px; border-bottom: 1px solid var(--rule); }
+  th:first-child, td:first-child { text-align: left; }
+  td { padding: 9px 0; border-bottom: 1px solid var(--rule-soft); text-align: right; }
+  tr.ready td { background: var(--sell-soft); }
+  .no { font-weight: 700; }
+  .sub { display: block; font-size: 11px; color: var(--ink-3); }
+  .mini { font-size: 11px; padding: 5px 9px; border-radius: 2px; flex: none;
+    border-color: var(--sell); color: var(--sell); font-weight: 600; }
+  .mini.plain { border-color: var(--rule); color: var(--ink-3); font-weight: 400; }
+  .pos { color: var(--buy); } .neg { color: var(--warn); }
+
+  .summary { background: var(--surface); border: 1px solid var(--rule-soft);
+    border-radius: 3px; padding: 4px 14px; margin-top: 10px; }
+  .srow { display: flex; justify-content: space-between; padding: 9px 0;
+    border-bottom: 1px solid var(--rule-soft); font-size: 14px; }
+  .srow:last-child { border-bottom: none; }
+  .srow span:first-child { color: var(--ink-2); }
+  .srow b { font-weight: 600; }
+
+  details { border-top: 1px solid var(--rule); margin-top: 26px; }
+  details + details { margin-top: 0; }
+  summary { padding: 13px 0; font-size: 14px; font-weight: 600; cursor: pointer;
+    list-style: none; display: flex; justify-content: space-between; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "펼치기"; font-weight: 400; font-size: 12px; color: var(--ink-3); }
+  details[open] summary::after { content: "접기"; }
+
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; }
+  .field label { font-size: 13px; color: var(--ink-2); flex: 1; }
+  .field .hint { display: block; font-size: 11px; color: var(--ink-3); }
+  input { font-family: inherit; font-size: 15px; font-variant-numeric: tabular-nums;
+    width: 122px; padding: 8px 10px; text-align: right; border: 1px solid var(--rule);
+    border-radius: 3px; background: var(--surface); color: var(--ink); }
+  input:focus-visible { outline: 2px solid var(--buy); outline-offset: 1px; }
+  textarea { width: 100%; height: 110px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px; padding: 10px; border: 1px solid var(--rule); border-radius: 3px;
+    background: var(--surface); color: var(--ink-2); resize: vertical; }
+  .guide { font-size: 13px; color: var(--ink-2); padding: 2px 0 14px; }
+  .guide b { color: var(--ink); font-weight: 600; }
+  .guide ol { margin: 6px 0 12px; padding-left: 20px; }
+  .guide li { margin: 4px 0; }
+  .alert { background: #FAEDEB; border-left: 5px solid var(--warn); border-radius: 3px;
+    padding: 12px 14px; margin-bottom: 14px; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+  .alert b { color: var(--warn); font-weight: 700; }
+  .alert.note { background: var(--wait-soft); border-left-color: var(--wait); }
+  .alert.note b { color: var(--ink); }
+  .alert-msg { display: block; margin-top: 6px; font-size: 11px; color: var(--ink-3);
+    font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
+  .onboard { background: var(--surface); border: 1px solid var(--rule);
+    border-left: 5px solid var(--ink); border-radius: 3px;
+    padding: 14px 16px 12px; margin-bottom: 14px; }
+  .onboard h3 { font-size: 15px; font-weight: 700; margin: 0 0 6px; }
+  .onboard ol { margin: 0 0 8px; padding-left: 18px; font-size: 13px; color: var(--ink-2); }
+  .onboard li { margin: 5px 0; }
+  .onboard li b, .guide li b { color: var(--ink); font-weight: 600; }
+  .onboard p { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
+  .onboard button { width: 100%; flex: none; }
+  .rules { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 4px 0 14px; }
+  .rules td { padding: 7px 0; border-bottom: 1px solid var(--rule-soft); text-align: left; vertical-align: top; }
+  .rules td:first-child { width: 42%; color: var(--ink); font-weight: 600; padding-right: 12px; }
+  .rules td:last-child { color: var(--ink-2); }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2);
+    margin: 10px 0 14px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px;
+    margin-right: 5px; vertical-align: -1px; }
+  .empty { font-size: 13px; color: var(--ink-3); padding: 14px 0; }
+  .footnote { font-size: 11.5px; color: var(--ink-3); line-height: 1.6;
+    margin-top: 26px; border-top: 1px solid var(--rule-soft); padding-top: 12px; }
+</style>
+
+<script>
+(function () {
+  var KEY = "dollarsplit:v2";
+
+  var DEFAULTS = {
+    settings: { total: 10000000, slotPct: 5, gapWon: 5, targetPct: 1, entryPos: 30, feePct: 0.1, offsetWon: 0 },
+    market: { rate: 1345.9, high52: 1562.5, low52: 1334.3, raw: 0, src: "", at: "", auto: false, err: "" },
+    positions: [], closed: [], seq: 0,
+    ui: { guideSeen: false }
+  };
+  var S = JSON.parse(JSON.stringify(DEFAULTS));
+  var root = document.getElementById("app");
+  var busy = false;
+
+  /* ---------- 저장 ---------- */
+  var STORE = { mode: "none", msg: "" };
+
+  function hasStore() {
+    return typeof window !== "undefined" && window.storage &&
+      typeof window.storage.set === "function" && typeof window.storage.get === "function";
+  }
+  function localOK() {
+    try {
+      window.localStorage.setItem("__probe", "1");
+      window.localStorage.removeItem("__probe");
+      return true;
+    } catch (e) { return false; }
+  }
+  function apply(v) {
+    if (!v) return;
+    S.settings = Object.assign({}, DEFAULTS.settings, v.settings || {});
+    S.market = Object.assign({}, DEFAULTS.market, v.market || {});
+    S.positions = v.positions || []; S.closed = v.closed || []; S.seq = v.seq || 0;
+    S.ui = Object.assign({}, DEFAULTS.ui, v.ui || {});
+  }
+
+  async function load() {
+    // 1순위 — Claude 저장소 (기기 간 동기화됨)
+    if (hasStore()) {
+      try {
+        var r = await window.storage.get(KEY, false);
+        STORE.mode = "claude";
+        if (r && r.value) apply(JSON.parse(r.value));
+        return;
+      } catch (e) {
+        var m = String((e && e.message) || e);
+        if (!/not available|disabled|denied/i.test(m)) { STORE.mode = "claude"; return; }
+        STORE.msg = m;
+      }
+    }
+    // 2순위 — 브라우저 저장소 (이 기기에만)
+    if (localOK()) {
+      STORE.mode = "local";
+      try { var v = window.localStorage.getItem(KEY); if (v) apply(JSON.parse(v)); } catch (e) {}
+      return;
+    }
+    STORE.mode = "none";
+  }
+
+  async function save() {
+    if (STORE.mode === "claude") {
+      try { await window.storage.set(KEY, JSON.stringify(S), false); return; }
+      catch (e) {
+        STORE.msg = String((e && e.message) || e);
+        STORE.mode = localOK() ? "local" : "none";
+      }
+    }
+    if (STORE.mode === "local") {
+      try { window.localStorage.setItem(KEY, JSON.stringify(S)); return; }
+      catch (e) { STORE.msg = String((e && e.message) || e); STORE.mode = "none"; }
+    }
+  }
+
+  /* ---------- 환율 자동 조회 ---------- */
+  var RATE_URLS = [
+    "https://api.frankfurter.dev/v2/rates?base=USD&quotes=KRW",
+    "https://api.frankfurter.app/latest?from=USD&to=KRW",
+    "https://open.er-api.com/v6/latest/USD",
+    "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
+  ];
+
+  // 응답 구조가 제각각이라 KRW 값을 재귀로 찾는다
+  function digKRW(node) {
+    if (node == null) return null;
+    if (Array.isArray(node)) {
+      for (var i = 0; i < node.length; i++) {
+        var it = node[i];
+        if (it && typeof it === "object" && String(it.quote).toUpperCase() === "KRW" && typeof it.rate === "number") return it.rate;
+      }
+      for (var j = 0; j < node.length; j++) { var a = digKRW(node[j]); if (a) return a; }
+      return null;
+    }
+    if (typeof node === "object") {
+      for (var k in node) if (k.toUpperCase() === "KRW" && typeof node[k] === "number") return node[k];
+      for (var k2 in node) { var b = digKRW(node[k2]); if (b) return b; }
+    }
+    return null;
+  }
+  var sane = function (v) { return typeof v === "number" && v > 500 && v < 4000; };
+
+  // 응답이 없으면 지정 시간 뒤에 포기한다 (먹통 방지)
+  async function grab(url, ms) {
+    var ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, ms || 5000);
+    try {
+      var res = await fetch(url, ctl ? { cache: "no-store", signal: ctl.signal } : { cache: "no-store" });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) { clearTimeout(timer); return null; }
+  }
+
+  async function fetchRate() {
+    for (var i = 0; i < RATE_URLS.length; i++) {
+      var j = await grab(RATE_URLS[i], 5000);
+      if (!j) continue;
+      var v = digKRW(j);
+      if (sane(v)) return { rate: v, host: RATE_URLS[i].split("/")[2] };
+    }
+    return null;
+  }
+
+  function ymd(d) { return d.toISOString().slice(0, 10); }
+
+  async function fetchRange() {
+    var end = new Date(), start = new Date();
+    start.setFullYear(start.getFullYear() - 1);
+    var span = ymd(start) + ".." + ymd(end);
+    var urls = [
+      "https://api.frankfurter.app/" + span + "?from=USD&to=KRW",
+      "https://api.frankfurter.dev/v1/" + span + "?from=USD&to=KRW"
+    ];
+    for (var i = 0; i < urls.length; i++) {
+      var j = await grab(urls[i], 7000);
+      if (!j || !j.rates) continue;
+      var vals = [];
+      for (var d in j.rates) { var x = digKRW(j.rates[d]); if (sane(x)) vals.push(x); }
+      if (vals.length > 60) return { hi: Math.max.apply(null, vals), lo: Math.min.apply(null, vals) };
+    }
+    return null;
+  }
+
+  async function refresh() {
+    if (busy) return;
+    busy = true; render();
+    var off = S.settings.offsetWon || 0;
+    var got = await fetchRate();
+    if (got) {
+      S.market.raw = got.rate;
+      S.market.rate = Math.round((got.rate + off) * 10) / 10;
+      S.market.src = got.host; S.market.auto = true; S.market.err = "";
+      S.market.at = new Date().toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+      var rg = await fetchRange();
+      if (rg) {
+        S.market.high52 = Math.round((rg.hi + off) * 10) / 10;
+        S.market.low52 = Math.round((rg.lo + off) * 10) / 10;
+      }
+      S.positions.forEach(function (p) { p.target = targetRate(p.krw, p.usd); });
+    } else {
+      S.market.auto = false;
+      S.market.err = "자동 조회에 실패했습니다. 환율을 직접 입력하세요.";
+    }
+    busy = false; await save(); render();
+  }
+
+  /* ---------- 계산 ---------- */
+  var n = function (v, d) { d = d || 0; return (isFinite(v) ? v : 0).toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  var fee = function () { return S.settings.feePct / 100; };
+  function slotAmount() { return Math.round(S.settings.total * S.settings.slotPct / 100); }
+  function maxSlots() { return Math.max(1, Math.floor(100 / S.settings.slotPct)); }
+  function pos52() {
+    var span = S.market.high52 - S.market.low52;
+    if (span <= 0) return 0;
+    return Math.min(100, Math.max(0, (S.market.rate - S.market.low52) / span * 100));
+  }
+  function targetRate(krw, usd) { return krw * (1 + S.settings.targetPct / 100) / (usd * (1 - fee())); }
+  function lowestBuy() { return S.positions.reduce(function (m, p) { return Math.min(m, p.rateBuy); }, Infinity); }
+  function readySells() { return S.positions.filter(function (p) { return S.market.rate >= p.target; }); }
+
+  function verdict() {
+    var sells = readySells();
+    if (sells.length) return { kind: "sell",
+      line: sells.map(function (p) { return p.no + "번"; }).join(", ") + " 매도",
+      note: "목표 환율에 도달했습니다. 해당 회차만 정리하고 나머지는 그대로 둡니다." };
+    if (S.positions.length >= maxSlots()) return { kind: "wait", line: "매수 대기",
+      note: "회차를 모두 소진했습니다. 추가 매수 없이 목표 도달을 기다립니다." };
+    if (S.positions.length === 0) {
+      var p = pos52();
+      if (p <= S.settings.entryPos) return { kind: "buy", line: "1번 매수",
+        note: "52주 위치 " + n(p, 1) + "% — 진입 기준 " + S.settings.entryPos + "% 이하입니다." };
+      return { kind: "wait", line: "매수 대기",
+        note: "52주 위치가 " + n(p, 1) + "%입니다. " + S.settings.entryPos + "% 이하로 내려오면 1번을 시작합니다." };
+    }
+    var trig = lowestBuy() - S.settings.gapWon;
+    if (S.market.rate <= trig) return { kind: "buy", line: (S.positions.length + 1) + "번 매수",
+      note: "직전 매수가보다 " + S.settings.gapWon + "원 이상 내렸습니다." };
+    return { kind: "wait", line: "매수 대기",
+      note: n(trig, 1) + "원 이하로 내려오면 " + (S.positions.length + 1) + "번을 매수합니다. 지금은 " + n(S.market.rate - trig, 1) + "원 남았습니다." };
+  }
+
+  function totals() {
+    var krw = 0, usd = 0;
+    S.positions.forEach(function (p) { krw += p.krw; usd += p.usd; });
+    var ev = usd * S.market.rate * (1 - fee());
+    return { krw: krw, usd: usd, ev: ev, open: ev - krw,
+      realized: S.closed.reduce(function (a, c) { return a + c.pnl; }, 0) };
+  }
+
+  /* ---------- 동작 ---------- */
+  function buy() {
+    if (S.positions.length >= maxSlots()) return;
+    var krw = slotAmount(), usd = krw / (S.market.rate * (1 + fee()));
+    S.seq += 1;
+    S.positions.push({ id: S.seq, no: S.positions.length + 1, date: ymd(new Date()),
+      rateBuy: S.market.rate, krw: krw, usd: usd, target: targetRate(krw, usd) });
+    save(); render();
+  }
+  function sell(id) {
+    var i = S.positions.findIndex(function (p) { return p.id === id; });
+    if (i < 0) return;
+    var p = S.positions[i], got = p.usd * S.market.rate * (1 - fee());
+    S.closed.unshift({ no: p.no, dateSell: ymd(new Date()), rateBuy: p.rateBuy,
+      rateSell: S.market.rate, krw: p.krw, pnl: got - p.krw });
+    S.positions.splice(i, 1);
+    S.positions.forEach(function (q, k) { q.no = k + 1; });
+    save(); render();
+  }
+  function setField(path, value) {
+    var v = parseFloat(value); if (!isFinite(v)) return;
+    var a = path.split("."); S[a[0]][a[1]] = v;
+    if (a[1] === "offsetWon" && S.market.raw) S.market.rate = Math.round((S.market.raw + v) * 10) / 10;
+    if (a[0] === "settings" && (a[1] === "targetPct" || a[1] === "feePct"))
+      S.positions.forEach(function (p) { p.target = targetRate(p.krw, p.usd); });
+    if (a[0] === "market") S.market.auto = false;
+    save(); render();
+  }
+  function resetAll() {
+    if (!confirm("모든 기록과 설정을 지웁니다. 되돌릴 수 없습니다.")) return;
+    S = JSON.parse(JSON.stringify(DEFAULTS)); save(); render();
+  }
+  function importJSON(txt) {
+    try {
+      var v = JSON.parse(txt);
+      if (!v.settings || !v.positions) throw 0;
+      S.settings = Object.assign({}, DEFAULTS.settings, v.settings);
+      S.market = Object.assign({}, DEFAULTS.market, v.market || {});
+      S.positions = v.positions || []; S.closed = v.closed || []; S.seq = v.seq || 0;
+      save(); render(); alert("복원했습니다.");
+    } catch (e) { alert("형식이 맞지 않습니다. 내보내기로 만든 텍스트를 그대로 붙여넣으세요."); }
+  }
+
+  /* ---------- 화면 ---------- */
+  function field(label, hint, path, value, step) {
+    return '<div class="field"><label>' + label + (hint ? '<span class="hint">' + hint + "</span>" : "") +
+      '</label><input type="number" step="' + (step || 1) + '" value="' + value + '" data-path="' + path + '"></div>';
+  }
+
+  function render() {
+    var v = verdict(), t = totals(), p = pos52(), ready = readySells();
+    var rid = {}; ready.forEach(function (r) { rid[r.id] = 1; });
+    var h = "";
+
+    h += '<div class="masthead"><h1>달러 세븐 스플릿</h1><span>회차 ' + S.positions.length + " / " + maxSlots() + "</span></div>";
+
+    if (STORE.mode === "none") {
+      h += '<div class="alert"><b>기록이 저장되지 않습니다.</b> 앱을 닫으면 입력한 내용이 사라집니다. ' +
+        "아래 백업 항목에서 내용을 복사해 두세요." +
+        (STORE.msg ? '<span class="alert-msg">' + STORE.msg + "</span>" : "") + "</div>";
+    } else if (STORE.mode === "local") {
+      h += '<div class="alert note">기록을 <b>이 기기에만</b> 저장합니다. 다른 기기에서는 보이지 않으니, ' +
+        "중요한 내용은 백업 항목에서 복사해 두세요.</div>";
+    }
+
+    if (!S.ui.guideSeen) {
+      h += '<div class="onboard"><h3>시작 전에 세 가지만</h3><ol>' +
+        "<li><b>총 투자금</b> — 아래 매매 규칙에서 실제 넣을 금액으로 바꿉니다. 이 금액을 20회로 나눠 씁니다.</li>" +
+        "<li><b>환율 보정</b> — 거래하는 은행 고시 환율과 몇 원 차이가 납니다. 한 번 맞춰두면 계속 적용됩니다.</li>" +
+        "<li><b>거래비용</b> — 우대율을 확인하고 편도 수수료율을 넣습니다. 이걸 0으로 두면 손익이 실제보다 좋게 나옵니다.</li>" +
+        "</ol><p>그다음부터는 하루 한 번 열어서 맨 위 한 줄만 보시면 됩니다. 자세한 설명은 아래 사용 방법에 있습니다.</p>" +
+        '<button class="ghost" id="btn-guide">알겠습니다</button></div>';
+    }
+
+    h += '<div class="verdict ' + v.kind + '"><div class="verdict-kicker">오늘 할 일</div>' +
+      '<div class="verdict-line">' + v.line + '</div><div class="verdict-note">' + v.note + "</div></div>";
+
+    h += '<div class="action-row"><button class="primary" id="btn-buy"' + (v.kind === "buy" ? "" : " disabled") + ">" +
+      (S.positions.length + 1) + '번 매수 기록</button><button class="ghost" id="btn-manual">지금 환율로 매수</button></div>';
+
+    /* 시세 */
+    var zone = Math.min(100, S.settings.entryPos);
+    var srcLine = busy ? "환율을 불러오는 중입니다"
+      : S.market.err ? S.market.err
+      : S.market.auto ? "자동 · " + S.market.at + " · " + S.market.src +
+          (S.settings.offsetWon ? " · 보정 " + (S.settings.offsetWon > 0 ? "+" : "") + S.settings.offsetWon + "원" : "")
+      : "직접 입력한 값입니다";
+
+    h += '<div class="quote"><div class="quote-head"><span class="quote-label">원/달러 환율</span>' +
+      '<button class="refresh" id="btn-refresh" data-busy="' + (busy ? 1 : 0) + '"' + (busy ? " disabled" : "") + ">" +
+      (busy ? "갱신 중" : "새로 고침") + "</button></div>" +
+      '<div class="quote-top"><div class="quote-rate">' + n(S.market.rate, 1) + "</div>" +
+      '<input type="number" step="0.1" value="' + S.market.rate + '" data-path="market.rate"></div>' +
+      '<div class="src' + (S.market.err ? " err" : "") + '">' + srcLine + "</div>" +
+      '<div class="gauge"><div class="gauge-track"><div class="gauge-zone" style="width:' + zone + '%"></div>' +
+      '<div class="gauge-thresh" style="left:' + zone + '%"></div>' +
+      '<div class="gauge-mark" style="left:calc(' + p + '% - 1px)"></div></div>' +
+      '<div class="gauge-ends"><span>' + n(S.market.low52, 1) + "</span><span>52주 범위</span><span>" +
+      n(S.market.high52, 1) + "</span></div>" +
+      '<div class="gauge-read">현재 위치 ' + n(p, 1) + "% · 진입 기준 " + S.settings.entryPos + "% 이하</div></div></div>";
+
+    /* 슬롯 */
+    var sl = "";
+    for (var i = 1; i <= maxSlots(); i++) {
+      var held = S.positions[i - 1], c = "slot";
+      if (held) c += rid[held.id] ? " ready" : " filled";
+      else if (i === S.positions.length + 1) c += " next";
+      sl += '<div class="' + c + '">' + i + "</div>";
+    }
+    h += '<h2>분할 현황</h2><div class="slots">' + sl + "</div>" +
+      '<div class="gauge-read">1회 매수 ' + n(slotAmount()) + "원 · 남은 회차 " + (maxSlots() - S.positions.length) + "회</div>";
+
+    /* 보유 */
+    h += "<h2>보유 회차</h2>";
+    if (!S.positions.length) h += '<div class="empty">아직 매수한 회차가 없습니다. 진입 조건을 만족하면 1번부터 시작합니다.</div>';
+    else {
+      h += "<table><thead><tr><th>회차</th><th>매수</th><th>목표</th><th>평가</th><th></th></tr></thead><tbody>";
+      S.positions.forEach(function (q) {
+        var cur = q.usd * S.market.rate * (1 - fee()) - q.krw, rd = !!rid[q.id];
+        h += "<tr" + (rd ? ' class="ready"' : "") + '><td class="no">' + q.no + '<span class="sub">' + q.date + "</span></td><td>" +
+          n(q.rateBuy, 1) + "</td><td>" + n(q.target, 1) + '</td><td class="' + (cur >= 0 ? "pos" : "neg") + '">' +
+          (cur >= 0 ? "+" : "") + n(cur) + '</td><td><button class="mini' + (rd ? "" : " plain") + '" data-sell="' + q.id + '">매도</button></td></tr>';
+      });
+      h += "</tbody></table>";
+    }
+
+    /* 집계 */
+    h += '<h2>집계</h2><div class="summary">' +
+      '<div class="srow"><span>투입 원화</span><b>' + n(t.krw) + "원</b></div>" +
+      '<div class="srow"><span>보유 달러</span><b>$' + n(t.usd, 2) + "</b></div>" +
+      '<div class="srow"><span>현재 평가</span><b>' + n(t.ev) + "원</b></div>" +
+      '<div class="srow"><span>미실현 손익</span><b class="' + (t.open >= 0 ? "pos" : "neg") + '">' + (t.open >= 0 ? "+" : "") + n(t.open) + "원</b></div>" +
+      '<div class="srow"><span>실현 손익 누계</span><b class="' + (t.realized >= 0 ? "pos" : "neg") + '">' + (t.realized >= 0 ? "+" : "") + n(t.realized) + "원</b></div></div>";
+
+    /* 사용 방법 */
+    h += '<details><summary>사용 방법</summary><div class="guide"><b>매일 하는 일</b><ol>' +
+      "<li>앱을 엽니다. 환율은 자동으로 들어옵니다.</li>" +
+      "<li>맨 위 한 줄을 확인합니다. 매수 · 매도 · 대기 셋 중 하나입니다.</li>" +
+      "<li>매수나 매도가 뜨면 <b>실제로 환전한 뒤</b> 버튼을 눌러 기록합니다.</li></ol>" +
+      "대기로 나오면 아무것도 하지 않습니다. 대부분의 날이 그렇고, 그게 정상입니다." +
+      '<div class="legend"><span><i style="background:var(--buy)"></i>보유 중인 회차</span>' +
+      '<span><i style="background:var(--sell)"></i>매도할 회차</span>' +
+      '<span><i style="border:1px dashed var(--ink)"></i>다음에 살 회차</span></div>' +
+      "<b>버튼</b><ol>" +
+      "<li><b>매수 기록</b> — 규칙 조건이 맞을 때만 눌립니다.</li>" +
+      "<li><b>지금 환율로 매수</b> — 규칙과 무관하게 넣는 예외용입니다. 실제 환전 시점이 어긋났을 때만 쓰세요.</li>" +
+      "<li><b>매도</b> — 노랗게 바뀐 회차만 누릅니다. 나머지는 그대로 둡니다. 이게 이 전략의 핵심입니다.</li></ol>" +
+      "<b>막힐 때</b><ol>" +
+      "<li>매수 버튼이 안 눌린다 — 아직 조건이 안 됐다는 뜻입니다. 얼마가 남았는지 맨 위에 나옵니다.</li>" +
+      "<li>환율이 이상하다 — 새로 고침을 누르고, 그래도 다르면 환율 보정값을 조정하세요.</li>" +
+      "<li>회차를 다 썼다 — 더 사지 않고 목표 도달을 기다립니다. 원칙 1번과 2번이 그것입니다.</li></ol>" +
+      "<b>7가지 원칙이 어디에 들어갔는지</b></div>" +
+      '<table class="rules"><tbody>' +
+      "<tr><td>1. 레버리지 금지</td><td>총 투자금 안에서만 회차를 나눕니다</td></tr>" +
+      "<tr><td>2. 손절 안 함</td><td>손절 기능을 넣지 않았습니다</td></tr>" +
+      "<tr><td>3. 데이터로 진입</td><td>52주 위치가 기준 아래일 때만 1번을 시작합니다</td></tr>" +
+      "<tr><td>4. 1회 5% 이내</td><td>회차 금액을 자동으로 고정합니다</td></tr>" +
+      "<tr><td>5. 금액 동일</td><td>추가 매수도 같은 금액. 물타기가 불가능합니다</td></tr>" +
+      "<tr><td>6. 갭 하락 시에만</td><td>직전 매수가보다 설정한 만큼 내려야 눌립니다</td></tr>" +
+      "<tr><td>7. 회차 독립</td><td>평단으로 합치지 않고 회차별로 따로 팝니다</td></tr>" +
+      "</tbody></table></details>";
+
+    /* 설정 */
+    h += "<details><summary>매매 규칙</summary>" +
+      field("총 투자금", "원", "settings.total", S.settings.total, 100000) +
+      field("1회 매수 비중", "% · 원칙 4", "settings.slotPct", S.settings.slotPct, 0.5) +
+      field("추가매수 갭", "원 · 원칙 6", "settings.gapWon", S.settings.gapWon, 0.5) +
+      field("회차별 목표 수익률", "%", "settings.targetPct", S.settings.targetPct, 0.1) +
+      field("최초 진입 기준", "52주 위치 % 이하 · 원칙 3", "settings.entryPos", S.settings.entryPos, 1) +
+      field("편도 거래비용", "% · 우대 적용 후 스프레드", "settings.feePct", S.settings.feePct, 0.01) + "</details>";
+
+    h += "<details><summary>환율 보정</summary>" +
+      '<div class="guide">자동으로 받아오는 값은 국제 기준환율이라 은행 고시가와 몇 원 차이가 납니다. 거래하시는 곳의 매매기준율과 비교해 차액을 넣어두면 이후 자동 갱신에도 계속 반영됩니다.</div>' +
+      field("보정값", "원 · 자동 환율에 더할 값", "settings.offsetWon", S.settings.offsetWon, 0.1) +
+      (S.market.raw ? '<div class="gauge-read">원본 ' + n(S.market.raw, 2) + "원 → 적용 " + n(S.market.rate, 1) + "원</div>" : "") +
+      "</details>";
+
+    h += "<details><summary>52주 기준값</summary>" +
+      field("52주 최고", "원", "market.high52", S.market.high52, 0.1) +
+      field("52주 최저", "원", "market.low52", S.market.low52, 0.1) +
+      '<div class="guide">새로 고침이 성공하면 최근 1년 데이터로 자동 계산됩니다. 직접 고치면 수동 값이 우선합니다.</div></details>';
+
+    /* 종료 */
+    h += "<details><summary>종료한 회차 " + (S.closed.length ? "(" + S.closed.length + ")" : "") + "</summary>";
+    if (!S.closed.length) h += '<div class="empty">아직 없습니다.</div>';
+    else {
+      h += "<table><thead><tr><th>회차</th><th>매수</th><th>매도</th><th>손익</th></tr></thead><tbody>";
+      S.closed.forEach(function (c) {
+        h += '<tr><td class="no">' + c.no + '<span class="sub">' + c.dateSell + "</span></td><td>" +
+          n(c.rateBuy, 1) + "</td><td>" + n(c.rateSell, 1) + '</td><td class="' + (c.pnl >= 0 ? "pos" : "neg") + '">' +
+          (c.pnl >= 0 ? "+" : "") + n(c.pnl) + "</td></tr>";
+      });
+      h += "</tbody></table>";
+    }
+    h += "</details>";
+
+    /* 홈 화면 */
+    h += '<details><summary>홈 화면에 추가</summary><div class="guide">' +
+      '먼저 이 화면 오른쪽 위의 공유 버튼으로 <b>링크를 만드세요.</b> 그 주소를 휴대폰 브라우저에서 열고 아래대로 하시면 앱처럼 바로 열립니다.' +
+      "<ol><li><b>아이폰(사파리)</b> — 아래쪽 공유 아이콘 → 홈 화면에 추가</li>" +
+      "<li><b>안드로이드(크롬)</b> — 오른쪽 위 ⋮ → 홈 화면에 추가</li></ol>" +
+      "기록은 계정에 저장되므로 휴대폰에서 열어도 같은 내용이 보입니다.</div></details>";
+
+    /* 백업 */
+    h += '<details><summary>백업과 복원</summary><div class="guide">아래 내용을 메모장에 복사해두면 언제든 되돌릴 수 있습니다.</div>' +
+      '<textarea id="io" spellcheck="false">' + JSON.stringify(S) + "</textarea>" +
+      '<div class="action-row" style="margin:8px 0 14px"><button class="ghost" id="btn-copy">복사</button>' +
+      '<button class="ghost" id="btn-import">붙여넣은 내용으로 복원</button></div></details>';
+
+    h += '<details><summary>기록 초기화</summary><div style="padding:4px 0 12px">' +
+      '<button id="btn-reset" style="border-color:var(--warn);color:var(--warn)">전부 지우기</button></div></details>';
+
+    h += '<div class="footnote">자동 환율은 중앙은행 기준 국제 환율이며 하루 한 번 갱신됩니다. 실시간 시세나 은행 고시 환율과는 차이가 있으니, 실제 거래 전에는 거래하시는 곳의 환율을 확인하세요.<br>' +
+      "이 도구는 정해둔 규칙을 대신 계산해줄 뿐 수익을 보장하지 않습니다. 투자 판단과 결과는 본인 책임입니다.</div>";
+
+    root.innerHTML = h;
+    bind();
+  }
+
+  function bind() {
+    var g = function (id) { return document.getElementById(id); };
+    if (g("btn-buy")) g("btn-buy").onclick = buy;
+    if (g("btn-refresh")) g("btn-refresh").onclick = refresh;
+    if (g("btn-reset")) g("btn-reset").onclick = resetAll;
+    if (g("btn-guide")) g("btn-guide").onclick = function () {
+      S.ui.guideSeen = true; save(); render();
+    };
+    if (g("btn-manual")) g("btn-manual").onclick = function () {
+      if (S.positions.length >= maxSlots()) { alert("회차를 모두 소진했습니다."); return; }
+      if (confirm("규칙 판정과 무관하게 지금 환율(" + n(S.market.rate, 1) + "원)로 한 회차를 기록합니다.")) buy();
+    };
+    if (g("btn-copy")) g("btn-copy").onclick = function () {
+      var el = g("io"); el.select(); el.setSelectionRange(0, 999999);
+      try { document.execCommand("copy"); alert("복사했습니다."); }
+      catch (e) { alert("길게 눌러 직접 복사해 주세요."); }
+    };
+    if (g("btn-import")) g("btn-import").onclick = function () { importJSON(g("io").value); };
+    root.querySelectorAll("[data-sell]").forEach(function (el) {
+      el.onclick = function () { sell(parseInt(el.getAttribute("data-sell"), 10)); };
+    });
+    root.querySelectorAll("input[data-path]").forEach(function (el) {
+      el.onchange = function () { setField(el.getAttribute("data-path"), el.value); };
+    });
+  }
+
+  load().then(function () { render(); refresh(); });
+})();
+</script>
