@@ -179,7 +179,7 @@
   var KEY = "dollarsplit:v2";
 
   var DEFAULTS = {
-    settings: { total: 10000000, slotPct: 5, gapWon: 5, targetPct: 1, entryPos: 30, feePct: 0.1, offsetWon: 0 },
+    settings: { total: 1000000, slots: 7, gapWon: 5, targetPct: 1, entryPos: 30, feePct: 0.1, offsetWon: 0 },
     market: { rate: 1345.9, high52: 1562.5, low52: 1334.3, raw: 0, src: "", at: "", auto: false, err: "" },
     positions: [], closed: [], seq: 0,
     ui: { guideSeen: false }
@@ -205,6 +205,11 @@
   function apply(v) {
     if (!v) return;
     S.settings = Object.assign({}, DEFAULTS.settings, v.settings || {});
+    if (!v.settings || v.settings.slots == null) {
+      var op = (v.settings && v.settings.slotPct) || 0;
+      S.settings.slots = op > 0 ? Math.max(1, Math.round(100 / op)) : 7;
+    }
+    delete S.settings.slotPct;
     S.market = Object.assign({}, DEFAULTS.market, v.market || {});
     S.positions = v.positions || []; S.closed = v.closed || []; S.seq = v.seq || 0;
     S.ui = Object.assign({}, DEFAULTS.ui, v.ui || {});
@@ -342,8 +347,8 @@
   /* ---------- 계산 ---------- */
   var n = function (v, d) { d = d || 0; return (isFinite(v) ? v : 0).toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d }); };
   var fee = function () { return S.settings.feePct / 100; };
-  function slotAmount() { return Math.round(S.settings.total * S.settings.slotPct / 100); }
-  function maxSlots() { return Math.max(1, Math.floor(100 / S.settings.slotPct)); }
+  function maxSlots() { return Math.max(1, Math.round(S.settings.slots || 7)); }
+  function slotAmount() { return Math.round(S.settings.total / maxSlots()); }
   function pos52() {
     var span = S.market.high52 - S.market.low52;
     if (span <= 0) return 0;
@@ -423,6 +428,257 @@
       S.positions = v.positions || []; S.closed = v.closed || []; S.seq = v.seq || 0;
       save(); render(); alert("복원했습니다.");
     } catch (e) { alert("형식이 맞지 않습니다. 내보내기로 만든 텍스트를 그대로 붙여넣으세요."); }
+  }
+
+
+  /* ---------- 백테스트 ---------- */
+  var BT = { running: false, msg: "", result: null, detail: "" };
+
+  // 시계열은 API 버전마다 주소와 응답 모양이 달라 여러 형태를 차례로 시도한다
+  function seriesURLs(from, to) {
+    var span = from + ".." + to;
+    return [
+      "https://api.frankfurter.dev/v2/rates?base=USD&quotes=KRW&from=" + from + "&to=" + to,
+      "https://api.frankfurter.dev/v1/" + span + "?from=USD&to=KRW",
+      "https://api.frankfurter.dev/v1/" + span + "?base=USD&symbols=KRW",
+      "https://api.frankfurter.app/" + span + "?from=USD&to=KRW",
+      "https://api.frankfurter.app/" + span + "?base=USD&symbols=KRW",
+      "https://api.frankfurter.dev/v1/" + span,
+      "https://api.frankfurter.app/" + span
+    ];
+  }
+
+  // v1은 {rates:{날짜:{KRW:x}}}, v2는 [{date,quote,rate}] 형태로 돌아온다
+  function parseSeries(j, usdBase) {
+    var out = [];
+    if (Array.isArray(j)) {
+      j.forEach(function (row) {
+        if (!row || String(row.quote).toUpperCase() !== "KRW") return;
+        if (sane(row.rate)) out.push({ d: row.date, r: row.rate });
+      });
+    } else if (j && j.rates) {
+      for (var d in j.rates) {
+        var node = j.rates[d];
+        var krw = digKRW(node);
+        var usd = node && (node.USD || node.usd);
+        if (!sane(krw)) continue;
+        // EUR 기준으로 왔으면 USD로 환산
+        if (usdBase === false && sane(krw / (usd || 1)) && usd) out.push({ d: d, r: krw / usd });
+        else out.push({ d: d, r: krw });
+      }
+    }
+    out.sort(function (a, b) { return a.d < b.d ? -1 : 1; });
+    return out;
+  }
+
+  async function tryRange(from, to) {
+    var urls = seriesURLs(from, to), tried = [];
+    for (var i = 0; i < urls.length; i++) {
+      var j = await grab(urls[i], 20000);
+      if (!j) { tried.push("응답없음"); continue; }
+      var base = j.base ? String(j.base).toUpperCase() : null;
+      var arr = parseSeries(j, base === null ? true : base === "USD");
+      if (arr.length > 20) return { data: arr, src: urls[i].split("/")[2] };
+      tried.push("데이터 " + arr.length + "건");
+    }
+    BT.detail = tried.join(" / ");
+    return null;
+  }
+
+  async function fetchSeries(months) {
+    var end = new Date();
+    var wide = new Date(); wide.setMonth(wide.getMonth() - months - 13);
+    var narrow = new Date(); narrow.setMonth(narrow.getMonth() - months);
+
+    // 1차: 52주 위치까지 계산할 수 있는 넓은 구간
+    var r = await tryRange(ymd(wide), ymd(end));
+    if (r) { r.full = true; return r; }
+
+    // 2차: 백테스트 구간만. 52주 위치는 앱에 저장된 값을 쓴다
+    r = await tryRange(ymd(narrow), ymd(end));
+    if (r) { r.full = false; return r; }
+    return null;
+  }
+
+
+  function pad2(x) { return (x.length === 1 ? "0" : "") + x; }
+
+  // 네이버 금융·인베스팅 등에서 복사한 표를 관대하게 해석한다
+  function parsePasted(txt) {
+    var out = [], seen = {};
+    txt.split(/\r?\n/).forEach(function (ln) {
+      var d = null, rest = ln;
+      var m = ln.match(/(\d{4})\s*[.\-\/년]\s*(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})/);
+      if (m) { d = m[1] + "-" + pad2(m[2]) + "-" + pad2(m[3]); rest = ln.slice(m.index + m[0].length); }
+      else {
+        var m2 = ln.match(/(\d{1,2})\s*[\/\-]\s*(\d{1,2})\s*[\/\-]\s*(\d{4})/);
+        if (m2) { d = m2[3] + "-" + pad2(m2[1]) + "-" + pad2(m2[2]); rest = ln.slice(m2.index + m2[0].length); }
+      }
+      if (!d || seen[d]) return;
+      var nums = rest.match(/[\d,]+\.?\d*/g) || [];
+      for (var i = 0; i < nums.length; i++) {
+        var v = parseFloat(nums[i].replace(/,/g, ""));
+        if (sane(v)) { seen[d] = 1; out.push({ d: d, r: v }); break; }
+      }
+    });
+    out.sort(function (a, b) { return a.d < b.d ? -1 : 1; });
+    return out;
+  }
+
+  function runPasted() {
+    var el = document.getElementById("bt-paste");
+    if (!el) return;
+    var arr = parsePasted(el.value || "");
+    if (arr.length < 5) {
+      BT.msg = "날짜와 환율을 함께 인식할 수 있는 줄이 " + arr.length + "개뿐입니다. 날짜가 포함된 표 전체를 복사해 주세요.";
+      BT.result = null; render(); return;
+    }
+    var spanDays = (new Date(arr[arr.length - 1].d) - new Date(arr[0].d)) / 86400000;
+    var full = spanDays > 400;
+    var months = Math.max(1, Math.round(spanDays / 30));
+    BT.msg = "";
+    BT.result = simulate(arr, full ? months - 13 : months, full);
+    BT.result.months = months;
+    BT.result.src = "붙여넣은 데이터";
+    BT.result.full = full;
+    render();
+  }
+
+  function simulate(series, months, full) {
+    var st = S.settings, f = st.feePct / 100;
+    var slot = Math.round(st.total / maxSlots());
+    var cut = new Date(); cut.setMonth(cut.getMonth() - months);
+    var cutS = ymd(cut);
+
+    var open = [], log = [], realized = 0, seq = 0;
+
+    for (var i = 0; i < series.length; i++) {
+      var day = series[i];
+      if (day.d < cutS) continue;
+
+      // 직전 52주 구간에서의 상대 위치
+      var lo, hi;
+      if (full === false) { lo = S.market.low52; hi = S.market.high52; }
+      else {
+        lo = Infinity; hi = -Infinity;
+        for (var k = i; k >= 0; k--) {
+          var diff = (new Date(day.d) - new Date(series[k].d)) / 86400000;
+          if (diff > 365) break;
+          if (series[k].r < lo) lo = series[k].r;
+          if (series[k].r > hi) hi = series[k].r;
+        }
+      }
+      var pos = hi > lo ? Math.min(100, Math.max(0, (day.r - lo) / (hi - lo) * 100)) : 0;
+
+      // 매도 먼저 (목표 도달 회차만)
+      for (var m = open.length - 1; m >= 0; m--) {
+        if (day.r >= open[m].target) {
+          var got = open[m].usd * day.r * (1 - f);
+          var pnl = got - open[m].krw;
+          realized += pnl;
+          log.push({ d: day.d, act: "매도", no: open[m].no, rate: day.r, pnl: pnl });
+          open.splice(m, 1);
+        }
+      }
+
+      // 매수
+      if (open.length < maxSlots()) {
+        var buy = false;
+        if (open.length === 0) buy = pos <= st.entryPos;
+        else {
+          var lowest = open.reduce(function (a, p) { return Math.min(a, p.rateBuy); }, Infinity);
+          buy = day.r <= lowest - st.gapWon;
+        }
+        if (buy) {
+          var usd = slot / (day.r * (1 + f));
+          var tgt = slot * (1 + st.targetPct / 100) / (usd * (1 - f));
+          seq += 1;
+          open.push({ no: open.length + 1, rateBuy: day.r, krw: slot, usd: usd, target: tgt });
+          log.push({ d: day.d, act: "매수", no: open.length, rate: day.r, pnl: null, pos: pos });
+        }
+      }
+    }
+
+    var last = series[series.length - 1].r;
+    var heldKrw = 0, heldUsd = 0;
+    open.forEach(function (p) { heldKrw += p.krw; heldUsd += p.usd; });
+    var openPnl = heldUsd * last * (1 - f) - heldKrw;
+
+    return {
+      days: series.filter(function (x) { return x.d >= cutS; }).length,
+      first: series.filter(function (x) { return x.d >= cutS; })[0],
+      last: series[series.length - 1],
+      buys: log.filter(function (x) { return x.act === "매수"; }).length,
+      sells: log.filter(function (x) { return x.act === "매도"; }).length,
+      realized: realized, openPnl: openPnl, heldKrw: heldKrw, held: open.length,
+      total: realized + openPnl, log: log.slice().reverse(), slot: slot
+    };
+  }
+
+  async function runBacktest(months) {
+    if (BT.running) return;
+    BT.running = true; BT.msg = ""; BT.detail = ""; BT.result = null; render();
+    var got = await fetchSeries(months);
+    if (!got) {
+      BT.msg = "환율 데이터를 받지 못했습니다." + (BT.detail ? " (시도 결과: " + BT.detail + ")" : "");
+    } else {
+      BT.result = simulate(got.data, months, got.full);
+      BT.result.months = months;
+      BT.result.src = got.src;
+      BT.result.full = got.full;
+    }
+    BT.running = false; render();
+  }
+
+  function backtestHTML() {
+    var h = '<details><summary>백테스트</summary><div class="guide">' +
+      "지금 설정한 매매 규칙을 과거 환율에 그대로 적용하면 어떤 결과가 나왔을지 계산합니다. " +
+      "하루 한 번 확인하는 기준입니다." +
+      '</div><div class="action-row" style="margin:6px 0 14px">' +
+      '<button class="ghost bt" data-bt="1"' + (BT.running ? " disabled" : "") + ">1개월</button>" +
+      '<button class="ghost bt" data-bt="2"' + (BT.running ? " disabled" : "") + ">2개월</button>" +
+      '<button class="ghost bt" data-bt="6"' + (BT.running ? " disabled" : "") + ">6개월</button>" +
+      '<button class="ghost bt" data-bt="12"' + (BT.running ? " disabled" : "") + ">1년</button></div>";
+
+    h += '<div class="guide" style="padding-top:0"><b>직접 붙여넣기</b><br>' +
+      "자동 조회가 안 되면, 일별 환율 표를 복사해 아래에 붙여넣고 실행하세요. " +
+      "날짜와 숫자가 한 줄에 같이 있으면 형식은 상관없습니다. 각 줄에서 <b>날짜 뒤 첫 번째 환율</b>을 읽습니다." +
+      "</div>" +
+      '<textarea id="bt-paste" spellcheck="false" placeholder="2026.09.16&#10;1,345.90&#9;1.20&#10;2026.09.15&#9;1,344.70&#9;-2.10&#10;..."></textarea>' +
+      '<div class="action-row" style="margin:8px 0 14px"><button class="ghost" id="bt-run-paste">붙여넣은 데이터로 실행</button></div>';
+
+    if (BT.running) h += '<div class="empty">계산 중입니다...</div>';
+    else if (BT.msg) h += '<div class="alert">' + BT.msg + "</div>";
+    else if (BT.result) {
+      var r = BT.result;
+      var pct = r.total / S.settings.total * 100;
+      h += '<div class="summary" style="margin-top:0">' +
+        '<div class="srow"><span>기간</span><b>' + r.first.d + " ~ " + r.last.d + "</b></div>" +
+        '<div class="srow"><span>환율 구간</span><b>' + n(r.first.r, 1) + " → " + n(r.last.r, 1) + "원</b></div>" +
+        '<div class="srow"><span>확인한 거래일</span><b>' + r.days + "일</b></div>" +
+        '<div class="srow"><span>52주 기준</span><b>' + (r.full === false ? "저장값 사용" : "시점별 계산") + "</b></div>" +
+        '<div class="srow"><span>매수 / 매도</span><b>' + r.buys + "회 / " + r.sells + "회</b></div>" +
+        '<div class="srow"><span>1회 매수금</span><b>' + n(r.slot) + "원</b></div>" +
+        '<div class="srow"><span>실현 손익</span><b class="' + (r.realized >= 0 ? "pos" : "neg") + '">' +
+        (r.realized >= 0 ? "+" : "") + n(r.realized) + "원</b></div>" +
+        '<div class="srow"><span>보유 ' + r.held + "회차 평가</span><b class=\"" + (r.openPnl >= 0 ? "pos" : "neg") + '">' +
+        (r.openPnl >= 0 ? "+" : "") + n(r.openPnl) + "원</b></div>" +
+        '<div class="srow"><span>합계</span><b class="' + (r.total >= 0 ? "pos" : "neg") + '">' +
+        (r.total >= 0 ? "+" : "") + n(r.total) + "원 (" + (pct >= 0 ? "+" : "") + n(pct, 2) + "%)</b></div></div>";
+
+      if (!r.log.length) h += '<div class="empty">이 기간에는 매매 신호가 한 번도 발생하지 않았습니다.</div>';
+      else {
+        h += '<h2 style="margin-top:18px">거래 내역</h2><table><thead><tr><th>날짜</th><th>구분</th><th>환율</th><th>손익</th></tr></thead><tbody>';
+        r.log.forEach(function (x) {
+          h += "<tr><td>" + x.d.slice(5) + '</td><td class="no">' + x.no + "번 " + x.act + "</td><td>" +
+            n(x.rate, 1) + "</td><td" + (x.pnl == null ? ">—" : ' class="' + (x.pnl >= 0 ? "pos" : "neg") + '">' +
+            (x.pnl >= 0 ? "+" : "") + n(x.pnl)) + "</td></tr>";
+        });
+        h += "</tbody></table>";
+      }
+      h += '<div class="footnote" style="margin-top:14px">국제 기준환율 기준이며 국내 고시가와 차이가 있습니다. 과거 결과가 미래를 보장하지 않습니다.</div>';
+    }
+    return h + "</details>";
   }
 
   /* ---------- 화면 ---------- */
@@ -547,7 +803,7 @@
     /* 설정 */
     h += "<details><summary>매매 규칙</summary>" +
       field("총 투자금", "원", "settings.total", S.settings.total, 100000) +
-      field("1회 매수 비중", "% · 원칙 4", "settings.slotPct", S.settings.slotPct, 0.5) +
+      field("분할 회차", "회 · 원안은 7분할", "settings.slots", S.settings.slots, 1) +
       field("추가매수 갭", "원 · 원칙 6", "settings.gapWon", S.settings.gapWon, 0.5) +
       field("회차별 목표 수익률", "%", "settings.targetPct", S.settings.targetPct, 0.1) +
       field("최초 진입 기준", "52주 위치 % 이하 · 원칙 3", "settings.entryPos", S.settings.entryPos, 1) +
@@ -558,6 +814,8 @@
       field("보정값", "원 · 자동 환율에 더할 값", "settings.offsetWon", S.settings.offsetWon, 0.1) +
       (S.market.raw ? '<div class="gauge-read">원본 ' + n(S.market.raw, 2) + "원 → 적용 " + n(S.market.rate, 1) + "원</div>" : "") +
       "</details>";
+
+    h += backtestHTML();
 
     h += "<details><summary>52주 기준값</summary>" +
       field("52주 최고", "원", "market.high52", S.market.high52, 0.1) +
@@ -619,6 +877,10 @@
       catch (e) { alert("길게 눌러 직접 복사해 주세요."); }
     };
     if (g("btn-import")) g("btn-import").onclick = function () { importJSON(g("io").value); };
+    if (g("bt-run-paste")) g("bt-run-paste").onclick = runPasted;
+    root.querySelectorAll("[data-bt]").forEach(function (el) {
+      el.onclick = function () { runBacktest(parseInt(el.getAttribute("data-bt"), 10)); };
+    });
     root.querySelectorAll("[data-sell]").forEach(function (el) {
       el.onclick = function () { sell(parseInt(el.getAttribute("data-sell"), 10)); };
     });
