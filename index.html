@@ -230,8 +230,8 @@
 
     var m = v.market || {};
     S.market = {
-      rate: typeof m.rate === "number" ? m.rate : 0,
-      setAt: m.setAt || null,
+      rate: 0,          // 환율은 저장값을 쓰지 않고 매번 새로 입력받는다
+      setAt: null,
       high52: typeof m.high52 === "number" ? m.high52 : DEFAULTS.market.high52,
       low52: typeof m.low52 === "number" ? m.low52 : DEFAULTS.market.low52
     };
@@ -281,7 +281,10 @@
   var signed = function (v, d) { return (v >= 0 ? "+" : "") + n(v, d); };
   var cls = function (v) { return v >= 0 ? "pos" : "neg"; };
   var fee = function () { return S.settings.feePct / 100; };
-  function hasRate() { return sane(S.market.rate); }
+  function hasRate() {
+    return sane(S.market.rate) && !!S.market.setAt &&
+      localYmd(new Date(S.market.setAt)) === localYmd(new Date());
+  }
   function maxSlots() { return Math.max(1, Math.round(S.settings.slots || 7)); }
   function slotAmount() { return Math.round(S.settings.total / maxSlots()); }
   function pos52() {
@@ -298,15 +301,13 @@
   }
 
   function stamp() {
-    if (!S.market.setAt) return { text: hasRate() ? "예전 값 · 오늘 환율로 바꿔주세요" : "아직 입력 전", stale: true };
+    if (!hasRate()) return { text: "현재 환율을 입력하세요.", stale: true };
     var d = new Date(S.market.setAt);
-    var hm = pad(d.getHours()) + ":" + pad(d.getMinutes());
-    if (localYmd(d) === localYmd(new Date())) return { text: "오늘 " + hm + " 입력", stale: false };
-    return { text: (d.getMonth() + 1) + "월 " + d.getDate() + "일 입력 · 오늘 환율로 바꿔주세요", stale: true };
+    return { text: "오늘 " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + " 입력", stale: false };
   }
 
   function verdict() {
-    if (!hasRate()) return { kind: "wait", line: "환율을 입력하세요",
+    if (!hasRate()) return { kind: "wait", line: "판정 대기",
       note: "거래하는 곳(토스뱅크 등) 화면의 달러 환율을 위 칸에 넣으면 판정이 나옵니다." };
     var sells = readySells();
     if (sells.length) return { kind: "sell",
@@ -356,7 +357,7 @@
     save(); render();
   }
   function sell(id) {
-    if (!hasRate()) { alert("먼저 오늘 환율을 입력하세요."); return; }
+    if (!hasRate()) { alert("먼저 현재 환율을 입력하세요."); return; }
     var i = S.positions.findIndex(function (p) { return p.id === id; });
     if (i < 0) return;
     var p = S.positions[i], got = p.usd * S.market.rate * (1 - fee());
@@ -554,7 +555,7 @@
     h += '<div class="rate-card"><div class="rate-head"><label for="rate">오늘 환율</label>' +
       '<span class="stamp' + (sp.stale ? " stale" : "") + '">' + sp.text + "</span></div>" +
       '<div class="rate-row"><input id="rate" class="rate-input" type="text" inputmode="decimal" autocomplete="off" ' +
-      'enterkeyhint="done" placeholder="1,389.50" value="' + (hasRate() ? nr(S.market.rate) : "") + '">' +
+      'enterkeyhint="done" placeholder="-" value="' + (hasRate() ? nr(S.market.rate) : "") + '">' +
       '<span class="rate-unit">원</span></div>' +
       '<div class="rate-hint">칸을 누르면 전체 선택 · 새 값을 넣고 완료</div>';
     if (hasRate()) {
@@ -607,7 +608,7 @@
       '<div class="srow"><span>투입 원화</span><b>' + n(t.krw) + "원</b></div>" +
       '<div class="srow"><span>보유 달러</span><b>$' + n(t.usd, 2) + "</b></div>" +
       '<div class="srow"><span>현재 평가</span><b>' + (hasRate() ? n(t.ev) + "원" : "—") + "</b></div>" +
-      '<div class="srow"><span>미실현 손익</span><b class="' + cls(t.open) + '">' +
+      '<div class="srow"><span>미실현 손익</span><b class="' + (hasRate() ? cls(t.open) : "") + '">' +
         (hasRate() ? signed(t.open) + "원" + (t.krw > 0 ? " (" + signed(t.openPct, 2) + "%)" : "") : "—") + "</b></div>" +
       '<div class="srow"><span>실현 손익 누계</span><b class="' + cls(t.realized) + '">' + signed(t.realized) + "원</b></div></div>";
 
@@ -629,7 +630,7 @@
       "<li>목표 수익률에 닿으면 그 회차가 노랗게 바뀌고 매도 신호가 뜹니다.</li></ol>" +
       "<b>막힐 때</b><ol>" +
       "<li>매수 버튼이 안 눌린다 — 아직 조건이 안 됐다는 뜻입니다. 얼마가 남았는지 오늘 할 일에 나옵니다.</li>" +
-      "<li>환율 옆에 빨간 글씨가 보인다 — 예전에 입력한 환율입니다. 오늘 환율로 바꿔주세요.</li>" +
+      "<li>환율 칸이 비어 있다 — 앱을 새로 열면 매번 비워집니다. 현재 환율을 넣어야 판정과 수익률이 나옵니다.</li>" +
       "<li>회차를 다 썼다 — 더 사지 않고 목표 도달을 기다립니다. 원칙 1번과 2번이 그것입니다.</li></ol>" +
       "<b>7가지 원칙이 어디에 들어갔는지</b></div>" +
       '<table class="rules"><tbody>' +
